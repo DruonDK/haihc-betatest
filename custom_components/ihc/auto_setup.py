@@ -102,8 +102,11 @@ def autosetup_ihc_products(
     try:
         auto_setup_conf = AUTO_SETUP_SCHEMA(yaml)
     except vol.Invalid:
+        # A broken auto setup file is a permanent error, so we do not want
+        # to fail the setup (that would make Home Assistant retry forever).
+        # Log the problem and continue without auto setup entities.
         _LOGGER.exception("Invalid IHC auto setup data")
-        return False
+        return True
     if entry.unique_id is None:
         msg = "unique id not set"
         raise ValueError(msg)

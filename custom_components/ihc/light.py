@@ -26,7 +26,7 @@ async def async_setup_entry(
     controller_data = hass.data[DOMAIN][entry.entry_id]
     ihc_controller: IHCController = controller_data[IHC_CONTROLLER]
     lights = []
-    if controller_data["light"]:
+    if controller_data.get("light"):
         for name, device in controller_data["light"].items():
             ihc_id = device["ihc_id"]
             product_cfg = device["product_cfg"]

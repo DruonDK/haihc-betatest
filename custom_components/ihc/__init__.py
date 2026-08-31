@@ -7,6 +7,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_URL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 from ihcsdk.ihccontroller import IHCController
@@ -21,7 +22,7 @@ from .const import (
 )
 from .manual_setup import MANUAL_SETUP_SCHEMA, manual_setup
 from .migrate import migrate_configuration
-from .service_functions import setup_service_functions
+from .service_functions import setup_service_functions, unload_service_functions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,24 +63,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #    ihc_controller.client.connection.logtiming = True
 
     if not await hass.async_add_executor_job(ihc_controller.authenticate):
-        _LOGGER.error("Unable to authenticate on IHC controller")
-        return False
+        # Raise ConfigEntryNotReady so Home Assistant will retry the setup
+        # automatically when the controller is offline/unreachable
+        await hass.async_add_executor_job(ihc_controller.disconnect)
+        msg = "Unable to authenticate on IHC controller"
+        raise ConfigEntryNotReady(msg)
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         IHC_CONTROLLER: ihc_controller,
         IHC_CONTROLLER_ID: controller_id,
     }
     if not await setup_controller_device(hass, ihc_controller, entry):
-        return False
-    if autosetup:
-        await hass.async_add_executor_job(
-            autosetup_ihc_products, hass, ihc_controller, entry
-        )
+        hass.data[DOMAIN].pop(entry.entry_id)
+        await hass.async_add_executor_job(ihc_controller.disconnect)
+        msg = "Unable to get system information from IHC controller"
+        raise ConfigEntryNotReady(msg)
+    if autosetup and not await hass.async_add_executor_job(
+        autosetup_ihc_products, hass, ihc_controller, entry
+    ):
+        hass.data[DOMAIN].pop(entry.entry_id)
+        await hass.async_add_executor_job(ihc_controller.disconnect)
+        msg = "Unable to read project from IHC controller"
+        raise ConfigEntryNotReady(msg)
     await hass.async_add_executor_job(manual_setup, hass, entry)
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setups(entry, IHC_PLATFORMS)
-    )
-    entry.add_update_listener(async_update_options)
+    await hass.config_entries.async_forward_entry_setups(entry, IHC_PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
     # We only wan to register service functions once, in case you have
     # multiple controllers
     if len(hass.data[DOMAIN]) == 1:
@@ -93,10 +101,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not unload_ok:
         return False
     ihc_controller = hass.data[DOMAIN][entry.entry_id][IHC_CONTROLLER]
-    ihc_controller.disconnect()
+    # disconnect blocks while waiting for the notify thread to end,
+    # so it must run in an executor to not block the event loop
+    await hass.async_add_executor_job(ihc_controller.disconnect)
     hass.data[DOMAIN].pop(entry.entry_id)
-    if hass.data[DOMAIN]:
+    if not hass.data[DOMAIN]:
         hass.data.pop(DOMAIN)
+        unload_service_functions(hass)
     return True
 
 
