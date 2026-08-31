@@ -92,19 +92,17 @@ def autosetup_ihc_products(
     if not (project_xml := ihc_controller.get_project()):
         _LOGGER.error("Unable to read project from IHC controller")
         return False
-    # The ihcsdk decodes the project as ISO-8859-1, but the xml itself may
-    # declare another encoding (newer controllers use UTF-8). Re-encode to
-    # the original bytes and let the xml parser handle the declared encoding,
-    # so special characters (like the danish æøå) are decoded correctly.
+    # The ihcsdk decodes the project as ISO-8859-1. Some projects contain
+    # UTF-8 bytes even though the xml declares ISO-8859-1, garbling special
+    # characters (like the danish æøå). If the raw bytes are valid UTF-8 we
+    # use that instead - text with special characters that validates as
+    # UTF-8 is very unlikely to actually be ISO-8859-1.
     _LOGGER.debug("IHC project header: %r", project_xml[:120])
     try:
-        project = ElementTree.fromstring(project_xml.encode("ISO-8859-1"))
-    except ElementTree.ParseError:
-        _LOGGER.debug(
-            "IHC project could not be parsed from bytes, "
-            "falling back to the ISO-8859-1 decoded string"
-        )
-        project = ElementTree.fromstring(project_xml)
+        project_xml = project_xml.encode("ISO-8859-1").decode("UTF-8")
+    except UnicodeDecodeError:
+        _LOGGER.debug("IHC project is not UTF-8, keeping the ISO-8859-1 decoding")
+    project = ElementTree.fromstring(project_xml)
 
     # If an auto setup file exist in the configuration it will override
     yaml_path = hass.config.path(AUTO_SETUP_YAML)
