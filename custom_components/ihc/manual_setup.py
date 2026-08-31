@@ -138,6 +138,21 @@ def remove_auto_setup_duplicates(
             del platform_data[name]
 
 
+def warn_duplicate_ids(platform_setup: list, platform: str) -> None:
+    """Warn about duplicate ihc ids in the manual configuration."""
+    seen_ids: set[int] = set()
+    for sensor_cfg in platform_setup:
+        if sensor_cfg[CONF_ID] in seen_ids:
+            _LOGGER.warning(
+                "Duplicate ihc id %s in the manual %s configuration (%s). "
+                "Only the first entity will be created",
+                sensor_cfg[CONF_ID],
+                platform,
+                sensor_cfg[CONF_NAME],
+            )
+        seen_ids.add(sensor_cfg[CONF_ID])
+
+
 def manual_setup(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Manual setup of IHC devices."""
     yaml_path = hass.config.path(MANUAL_SETUP_YAML)
@@ -167,18 +182,9 @@ def manual_setup(hass: HomeAssistant, entry: ConfigEntry) -> None:
         discovery_info = {}
         if platform in controller_conf:
             platform_setup = controller_conf.get(platform, {})
-            seen_ids: set[int] = set()
+            warn_duplicate_ids(platform_setup, platform)
             for sensor_cfg in platform_setup:
                 name = sensor_cfg[CONF_NAME]
-                if sensor_cfg[CONF_ID] in seen_ids:
-                    _LOGGER.warning(
-                        "Duplicate ihc id %s in the manual %s configuration "
-                        "(%s). Only the first entity will be created",
-                        sensor_cfg[CONF_ID],
-                        platform,
-                        name,
-                    )
-                seen_ids.add(sensor_cfg[CONF_ID])
                 device = {
                     "ihc_id": sensor_cfg[CONF_ID],
                     "ctrl_id": controller_id,
