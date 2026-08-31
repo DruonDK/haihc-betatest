@@ -96,9 +96,14 @@ def autosetup_ihc_products(
     # declare another encoding (newer controllers use UTF-8). Re-encode to
     # the original bytes and let the xml parser handle the declared encoding,
     # so special characters (like the danish æøå) are decoded correctly.
+    _LOGGER.debug("IHC project header: %r", project_xml[:120])
     try:
         project = ElementTree.fromstring(project_xml.encode("ISO-8859-1"))
     except ElementTree.ParseError:
+        _LOGGER.debug(
+            "IHC project could not be parsed from bytes, "
+            "falling back to the ISO-8859-1 decoded string"
+        )
         project = ElementTree.fromstring(project_xml)
 
     # If an auto setup file exist in the configuration it will override
@@ -119,6 +124,8 @@ def autosetup_ihc_products(
         raise ValueError(msg)
     controller_id: str = entry.unique_id
     groups = project.findall(".//group")
+    if groups:
+        _LOGGER.debug("First IHC group name: %r", groups[0].attrib.get("name", ""))
     for platform in IHC_PLATFORMS:
         platform_setup = auto_setup_conf[platform]
         discovery_info = get_discovery_info(platform_setup, groups, controller_id)
