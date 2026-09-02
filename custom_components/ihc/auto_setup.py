@@ -92,6 +92,16 @@ def autosetup_ihc_products(
     if not (project_xml := ihc_controller.get_project()):
         _LOGGER.error("Unable to read project from IHC controller")
         return False
+    # The ihcsdk decodes the project as ISO-8859-1. Some projects contain
+    # UTF-8 bytes even though the xml declares ISO-8859-1, garbling special
+    # characters (like the danish æøå). If the raw bytes are valid UTF-8 we
+    # use that instead - text with special characters that validates as
+    # UTF-8 is very unlikely to actually be ISO-8859-1.
+    _LOGGER.debug("IHC project header: %r", project_xml[:120])
+    try:
+        project_xml = project_xml.encode("ISO-8859-1").decode("UTF-8")
+    except UnicodeDecodeError:
+        _LOGGER.debug("IHC project is not UTF-8, keeping the ISO-8859-1 decoding")
     project = ElementTree.fromstring(project_xml)
 
     # If an auto setup file exist in the configuration it will override
@@ -102,13 +112,18 @@ def autosetup_ihc_products(
     try:
         auto_setup_conf = AUTO_SETUP_SCHEMA(yaml)
     except vol.Invalid:
+        # A broken auto setup file is a permanent error, so we do not want
+        # to fail the setup (that would make Home Assistant retry forever).
+        # Log the problem and continue without auto setup entities.
         _LOGGER.exception("Invalid IHC auto setup data")
-        return False
+        return True
     if entry.unique_id is None:
         msg = "unique id not set"
         raise ValueError(msg)
     controller_id: str = entry.unique_id
     groups = project.findall(".//group")
+    if groups:
+        _LOGGER.debug("First IHC group name: %r", groups[0].attrib.get("name", ""))
     for platform in IHC_PLATFORMS:
         platform_setup = auto_setup_conf[platform]
         discovery_info = get_discovery_info(platform_setup, groups, controller_id)

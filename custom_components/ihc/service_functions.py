@@ -179,3 +179,16 @@ def setup_service_functions(hass: HomeAssistant) -> None:
         async_set_runtime_value_time,
         schema=SET_RUNTIME_VALUE_TIME_SCHEMA,
     )
+
+
+def unload_service_functions(hass: HomeAssistant) -> None:
+    """Remove the IHC service functions when the last controller is unloaded."""
+    for service in (
+        SERVICE_SET_RUNTIME_VALUE_BOOL,
+        SERVICE_SET_RUNTIME_VALUE_INT,
+        SERVICE_SET_RUNTIME_VALUE_FLOAT,
+        SERVICE_PULSE,
+        SERVICE_SET_RUNTIME_VALUE_TIMER,
+        SERVICE_SET_RUNTIME_VALUE_TIME,
+    ):
+        hass.services.async_remove(DOMAIN, service)
