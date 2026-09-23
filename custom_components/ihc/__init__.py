@@ -29,8 +29,9 @@ from .util import install_request_timeout
 _LOGGER = logging.getLogger(__name__)
 
 # How long to wait for the SDK to disconnect during unload (seconds).
-# Must exceed the request read timeout (see util.REQUEST_TIMEOUT).
-DISCONNECT_TIMEOUT = 45
+# Must exceed the time a hanging request takes to fail, which is the read
+# timeout times the retries plus one (see util.REQUEST_TIMEOUT).
+DISCONNECT_TIMEOUT = 90
 
 """
 CONFIG_SCHEMA is not used by the setup anymore. It is there to make hassfest happy.

@@ -11,7 +11,8 @@ from requests.adapters import HTTPAdapter
 # The read timeout must be longer than the SDK's long poll wait (10 s), so a
 # normal poll never times out, but a poll left hanging by a dropped network
 # connection is aborted and the SDK's re-authenticate logic can recover.
-REQUEST_TIMEOUT: tuple[float, float] = (10.0, 30.0)
+# With the SDK's 3 retries a hanging poll gives up after 4 * 20 s = 80 s.
+REQUEST_TIMEOUT: tuple[float, float] = (10.0, 20.0)
 
 
 async def async_pulse(
@@ -97,8 +98,9 @@ def install_request_timeout(
     connection = ihc_controller.client.connection
     session = connection.session
     for prefix in ("http://", "https://"):
-        # Keep the SDK's retry policy for connection/status errors, but do
-        # not retry a read timeout: a hanging poll must fail fast so the
-        # notify thread can re-authenticate.
-        retries = session.get_adapter(prefix).max_retries.new(read=0)
+        # Keep the SDK's retry policy. The controller regularly closes an
+        # idle long poll without a response, and the SDK relies on the
+        # retry to handle that silently. A hanging poll is retried the
+        # same way, so it fails after (retries + 1) * read timeout.
+        retries = session.get_adapter(prefix).max_retries
         session.mount(prefix, _TimeoutHTTPAdapter(timeout, max_retries=retries))
