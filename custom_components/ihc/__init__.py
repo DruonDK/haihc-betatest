@@ -23,6 +23,7 @@ from .const import (
 from .manual_setup import MANUAL_SETUP_SCHEMA, manual_setup
 from .migrate import migrate_configuration
 from .service_functions import setup_service_functions, unload_service_functions
+from .util import install_request_timeout
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     password: str = entry.data[CONF_PASSWORD]
     autosetup: bool = entry.data[CONF_AUTOSETUP]
     ihc_controller: IHCController = IHCController(url, username, password)
+    install_request_timeout(ihc_controller)
     #    ihc_controller.client.connection.min_interval = 0.1
     #    ihc_controller.client.connection.logtiming = True
 

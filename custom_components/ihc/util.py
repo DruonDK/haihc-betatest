@@ -1,9 +1,18 @@
 """Useful functions for the IHC component."""
 
 import asyncio
+from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
 from ihcsdk.ihccontroller import IHCController
+from requests.adapters import HTTPAdapter
+
+# Connect/read timeout (seconds) applied to every request to the controller.
+# The read timeout must be longer than the SDK's long poll wait (10 s), so a
+# normal poll never times out, but a poll left hanging by a dropped network
+# connection is aborted and the SDK's re-authenticate logic can recover.
+# With the SDK's 3 retries a hanging poll gives up after 4 * 20 s = 80 s.
+REQUEST_TIMEOUT: tuple[float, float] = (10.0, 20.0)
 
 
 async def async_pulse(
@@ -56,3 +65,42 @@ def get_controller_serial(ihc_controller: IHCController) -> str:
         msg = "Unable to get serial number from IHC controller"
         raise ValueError(msg)
     return system_info["serial_number"]
+
+
+class _TimeoutHTTPAdapter(HTTPAdapter):
+    """HTTP adapter that applies a default timeout to every request."""
+
+    def __init__(self, timeout: tuple[float, float], **kwargs: Any) -> None:
+        """Initialize the adapter with the timeout to apply."""
+        self._timeout = timeout
+        super().__init__(**kwargs)
+
+    def send(self, request: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        """Send the request, adding the default timeout when none is given."""
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = self._timeout
+        return super().send(request, **kwargs)
+
+
+def install_request_timeout(
+    ihc_controller: IHCController,
+    timeout: tuple[float, float] = REQUEST_TIMEOUT,
+) -> None:
+    """
+    Make every request from the ihcsdk to the controller time out.
+
+    The ihcsdk sends its soap requests without a timeout. If the network drops
+    while the notify thread is in its long poll, the socket read can block
+    forever: no events reach Home Assistant, and unloading the entry hangs
+    because the SDK waits for the notify thread to end. Mounting an adapter
+    with a timeout on the SDK's requests session fixes both.
+    """
+    connection = ihc_controller.client.connection
+    session = connection.session
+    for prefix in ("http://", "https://"):
+        # Keep the SDK's retry policy. The controller regularly closes an
+        # idle long poll without a response, and the SDK relies on the
+        # retry to handle that silently. A hanging poll is retried the
+        # same way, so it fails after (retries + 1) * read timeout.
+        retries = session.get_adapter(prefix).max_retries
+        session.mount(prefix, _TimeoutHTTPAdapter(timeout, max_retries=retries))
